@@ -553,7 +553,7 @@ class _RDAPNetwork(_RDAPCommon):
 
                 self.vars[v] = self.json[v].strip()
 
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, AttributeError): # Added AttributeError here!
 
                 pass
 
@@ -797,6 +797,41 @@ class RDAP:
 
                     results['objects'][ent['handle']] = result_ent.vars
 
+                    ####### PERSONAL ADDITION TO THE LIB: As RIPE does not provide all data, when not explicitely querying for the entity, we query for all entities
+                    # and expand the existing entity if we dont have a value for this field yet 
+                    if bootstrap:
+                        entity_url = '{0}/entity/{1}'.format(
+                            BOOTSTRAP_URL, ent)
+                    else:
+                        tmp_reg = asn_data['asn_registry']
+                        entity_url = RIR_RDAP[tmp_reg]['entity_url']
+                        entity_url = str(entity_url).format(ent['handle'])
+                    
+                    try:
+                        response = self._net.get_http_json(
+                            url=entity_url, retry_count=retry_count,
+                            rate_limit_timeout=rate_limit_timeout
+                        )
+                        new_result_ent = _RDAPEntity(response)
+                        new_result_ent.parse()
+                        new_results = new_result_ent.vars
+                    except HTTPLookupError:
+                        new_results = results['objects'][ent['handle']] #Just take the old results as new results
+                        pass
+
+                    
+
+                    try:
+                        for elem in results['objects'][ent['handle']]:
+                            if results['objects'][ent['handle']][elem] == None:
+                                results['objects'][ent['handle']][elem] = new_results[elem]
+                        for elem in results['objects'][ent['handle']]['contact']:
+                            if results['objects'][ent['handle']]['contact'][elem] == None:
+                                results['objects'][ent['handle']]['contact'][elem] = new_results['contact'][elem]
+                    except TypeError:
+                        pass
+                    ####### END OF PERSONAL MODIFICATION
+                    
                     results['entities'].append(ent['handle'])
 
                     try:
@@ -815,6 +850,12 @@ class RDAP:
 
         # Iterate through to the defined depth, retrieving and parsing all
         # unique entities.
+        
+        # temp_objects = {}
+        # temp_objects['init'] = {}
+        # temp_objects['init']['entities'] = [ent["handle"] for ent in response["entities"]] 
+        # results['entities'] = [ent["handle"] for ent in response["entities"]] 
+        
         temp_objects = results['objects']
 
         if depth > 0 and len(temp_objects) > 0:
